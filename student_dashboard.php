@@ -72,6 +72,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $error_message = 'Failed to submit assignment. Unit not found.';
         }
+    } elseif (isset($_POST['action']) && $_POST['action'] === 'submit_grievance') {
+        $title = trim($_POST['title']);
+        $category = trim($_POST['category']);
+        $desc = trim($_POST['desc']);
+        if (!empty($title) && !empty($category) && !empty($desc)) {
+            $new_g = [
+                'id' => count($db['grievances']) + 1,
+                'student_id' => $user['username'],
+                'student_name' => $user['name'],
+                'title' => $title,
+                'category' => $category,
+                'desc' => $desc,
+                'date' => date('d M Y h:i A'),
+                'status' => 'Pending',
+                'replies' => []
+            ];
+            $db['grievances'][] = $new_g;
+            
+            // Add a recent activity
+            $db['recent_activity'] = array_merge([
+                [
+                    'title' => 'Grievance Raised',
+                    'desc' => $user['name'] . ' reported "' . $title . '"',
+                    'time' => 'Just now'
+                ]
+            ], array_slice($db['recent_activity'], 0, 3));
+            
+            save_db($db);
+            $success_message = 'Grievance submitted successfully!';
+        } else {
+            $error_message = 'Please fill out all grievance fields.';
+        }
     }
 }
 
@@ -121,9 +153,8 @@ $db = get_db();
                     <p id="currentTabSubtitle">Stay updated with the latest announcements and important information.</p>
                 </div>
                 <div class="user-profile-widget">
-                    <div class="notification-bell" onclick="alert('You have 3 unread system notifications.')">
+                    <div class="notification-bell">
                         <i class="fa-regular fa-bell"></i>
-                        <span class="badge">3</span>
                     </div>
                     <div class="user-avatar-box">
                         <img src="<?php echo htmlspecialchars($user['avatar']); ?>" alt="User Avatar">
@@ -165,12 +196,12 @@ $db = get_db();
 
                 <div class="data-table-container">
                     <div class="table-header-filters">
-                        <select class="select-filter" onchange="alert('Filter applied!')">
+                        <select class="select-filter" id="noticeRoleFilter" onchange="filterNotices()">
                             <option value="all">All Notices</option>
                             <option value="faculty">Faculty Only</option>
                             <option value="admin">Administration Only</option>
                         </select>
-                        <select class="select-filter" onchange="alert('Sort order updated!')">
+                        <select class="select-filter" id="noticeSortFilter" onchange="filterNotices()">
                             <option value="newest">Newest First</option>
                             <option value="oldest">Oldest First</option>
                         </select>
@@ -208,13 +239,13 @@ $db = get_db();
                                                 $ext = pathinfo($notice['attachment'], PATHINFO_EXTENSION); 
                                                 $badge_class = ($ext === 'pdf') ? 'pdf' : 'docx';
                                             ?>
-                                            <a href="#" class="attachment-badge <?php echo $badge_class; ?>" onclick="alert('Downloading attachment: <?php echo $notice['attachment']; ?>')">
+                                            <a href="<?php echo htmlspecialchars($notice['attachment']); ?>" class="attachment-badge <?php echo $badge_class; ?>" download>
                                                 <i class="fa-regular <?php echo ($badge_class==='pdf')?'fa-file-pdf':'fa-file-word'; ?>"></i>
                                                 <span><?php echo htmlspecialchars($notice['attachment']); ?> (<?php echo $notice['size']; ?>)</span>
                                             </a>
-                                            <button class="btn-icon-download" onclick="alert('Downloading attachment: <?php echo $notice['attachment']; ?>')" style="margin-left: 0.5rem;">
+                                            <a href="<?php echo htmlspecialchars($notice['attachment']); ?>" class="btn-icon-download" style="margin-left: 0.5rem; text-decoration: none;" download>
                                                 <i class="fa-solid fa-download"></i>
-                                            </button>
+                                            </a>
                                         <?php else: ?>
                                             <span style="color: var(--text-muted); font-size: 0.9rem;">—</span>
                                         <?php endif; ?>
@@ -408,6 +439,156 @@ $db = get_db();
             </div>
 
             <!-- ============================================ -->
+            <!-- 4. GRIEVANCES PAGE                           -->
+            <!-- ============================================ -->
+            <div id="tab-grievance" class="app-view">
+                <div class="leave-grid">
+                    <!-- Submit Request card -->
+                    <div class="leave-form-container">
+                        <div class="leave-form-header">
+                            <h3>Submit a Grievance</h3>
+                            <p>Report issues to administration or department heads.</p>
+                        </div>
+                        <form method="POST" action="student_dashboard.php">
+                            <input type="hidden" name="action" value="submit_grievance">
+                            <div class="leave-form-row">
+                                <div class="form-group">
+                                    <label><i class="fa-solid fa-heading"></i> Subject Title</label>
+                                    <div class="input-wrapper">
+                                        <input type="text" name="title" required placeholder="Brief description of the issue">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label><i class="fa-solid fa-tag"></i> Category</label>
+                                    <div class="input-wrapper">
+                                        <select class="select-filter" name="category" style="width: 100%; height: 45px;" required>
+                                            <option value="">Select Category</option>
+                                            <option value="Infrastructure">Infrastructure & Facilities</option>
+                                            <option value="Academics">Academics & Grading</option>
+                                            <option value="Administration">Administrative Issues</option>
+                                            <option value="Other">Other</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin-bottom: 1.5rem;">
+                                <label><i class="fa-solid fa-align-left"></i> Description</label>
+                                <textarea name="desc" rows="4" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); font-family: var(--font-primary);" required placeholder="Explain your grievance in detail..."></textarea>
+                            </div>
+                            <button type="submit" class="btn-submit-leave">
+                                <i class="fa-solid fa-paper-plane"></i>
+                                <span>Submit Grievance</span>
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Grievances list -->
+                    <div class="data-table-container">
+                        <div class="table-header-filters" style="justify-content: flex-start; background: #fafafa; border-bottom: 1px solid var(--border-color);">
+                            <h3 style="font-size: 1.15rem; font-weight: 700; color: #111827; padding: 0.5rem 0.25rem;">My Grievances</h3>
+                        </div>
+                        <div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem;">
+                            <?php 
+                            $my_grievances = array_filter($db['grievances'], function($g) use ($user) {
+                                return $g['student_id'] === $user['username'];
+                            });
+                            
+                            if (empty($my_grievances)): ?>
+                                <p style="color:var(--text-muted); text-align:center;">You have not submitted any grievances yet.</p>
+                            <?php else: foreach ($my_grievances as $g): ?>
+                                <div style="border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: 1.25rem; background: #fafafa;">
+                                    <div style="display:flex; justify-content:space-between; margin-bottom: 1rem;">
+                                        <div>
+                                            <h4 style="font-size:1.1rem; font-weight:700; color:#111827; margin-bottom:0.25rem;"><?= htmlspecialchars($g['title']) ?></h4>
+                                            <span class="notice-desc"><?= htmlspecialchars($g['category']) ?> • <?= htmlspecialchars($g['date']) ?></span>
+                                        </div>
+                                        <div>
+                                            <span class="status-pill <?= strtolower(str_replace(' ', '-', $g['status'])) ?>"><?= htmlspecialchars($g['status']) ?></span>
+                                        </div>
+                                    </div>
+                                    <p style="color:#374151; font-size:0.95rem; margin-bottom:1rem; padding-bottom:1rem; border-bottom:1px solid var(--border-color);"><?= nl2br(htmlspecialchars($g['desc'])) ?></p>
+                                    
+                                    <?php if (!empty($g['replies'])): ?>
+                                        <div style="display:flex; flex-direction:column; gap:0.75rem;">
+                                            <h5 style="font-size:0.9rem; font-weight:600; color:#4b5563;">Responses:</h5>
+                                            <?php foreach ($g['replies'] as $reply): ?>
+                                                <div style="background: white; border-radius:var(--border-radius-sm); padding:1rem; border:1px solid var(--border-color);">
+                                                    <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
+                                                        <span style="font-weight:600; font-size:0.85rem; color:var(--primary-color);"><?= htmlspecialchars($reply['author']) ?> (<?= htmlspecialchars($reply['role']) ?>)</span>
+                                                        <span style="font-size:0.8rem; color:var(--text-muted);"><?= htmlspecialchars($reply['date']) ?></span>
+                                                    </div>
+                                                    <div style="font-size:0.9rem; color:#374151;"><?= nl2br(htmlspecialchars($reply['message'])) ?></div>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    <?php else: ?>
+                                        <p style="font-size:0.85rem; color:var(--text-muted); font-style:italic;">No responses yet.</p>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endforeach; endif; ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================ -->
+            <!-- 5. STUDENT PROFILE PAGE                      -->
+            <!-- ============================================ -->
+            <div id="tab-profile" class="app-view">
+                <div class="settings-form-container" style="max-width: 800px; margin: 0 auto; background: white; border: 1px solid var(--border-color); border-radius: var(--border-radius-md); padding: 2rem; box-shadow: var(--box-shadow-subtle);">
+                    <div style="display: flex; gap: 2rem; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 2rem; margin-bottom: 2rem;">
+                        <img src="<?= htmlspecialchars($user['avatar'] ?? 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?q=80&w=150&auto=format&fit=crop') ?>" alt="Student Avatar" style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover; border: 4px solid var(--primary-light);">
+                        <div>
+                            <h2 style="font-size: 1.75rem; font-weight: 800; color: #111827; margin: 0 0 0.5rem 0;"><?= htmlspecialchars($user['name']) ?></h2>
+                            <span class="status-pill graded" style="font-size: 0.85rem; padding: 0.25rem 0.75rem;">Active Student</span>
+                            <p style="margin: 0.5rem 0 0 0; color: var(--text-muted); font-size: 0.95rem;">ID: <?= htmlspecialchars($user['username']) ?> | <?= htmlspecialchars($user['dept']) ?></p>
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group-col">
+                            <label>Full Name</label>
+                            <input type="text" readonly value="<?= htmlspecialchars($user['name']) ?>" style="background: #f9fafb; cursor: not-allowed; border: 1px solid var(--border-color); padding: 0.75rem 1rem; border-radius: var(--border-radius-sm);">
+                        </div>
+                        <div class="form-group-col">
+                            <label>Student ID / Roll No</label>
+                            <input type="text" readonly value="<?= htmlspecialchars($user['username']) ?>" style="background: #f9fafb; cursor: not-allowed; border: 1px solid var(--border-color); padding: 0.75rem 1rem; border-radius: var(--border-radius-sm);">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row" style="margin-top: 1rem;">
+                        <div class="form-group-col">
+                            <label>Email Address</label>
+                            <input type="text" readonly value="prasad.kulkarni@erp.edu" style="background: #f9fafb; cursor: not-allowed; border: 1px solid var(--border-color); padding: 0.75rem 1rem; border-radius: var(--border-radius-sm);">
+                        </div>
+                        <div class="form-group-col">
+                            <label>Phone Number</label>
+                            <input type="text" readonly value="+91 99223 34455" style="background: #f9fafb; cursor: not-allowed; border: 1px solid var(--border-color); padding: 0.75rem 1rem; border-radius: var(--border-radius-sm);">
+                        </div>
+                    </div>
+
+                    <div class="form-row" style="margin-top: 1rem;">
+                        <div class="form-group-col">
+                            <label>Department</label>
+                            <input type="text" readonly value="Information Technology" style="background: #f9fafb; cursor: not-allowed; border: 1px solid var(--border-color); padding: 0.75rem 1rem; border-radius: var(--border-radius-sm);">
+                        </div>
+                        <div class="form-group-col">
+                            <label>Current Semester & Division</label>
+                            <input type="text" readonly value="5th Semester - Div A (A2)" style="background: #f9fafb; cursor: not-allowed; border: 1px solid var(--border-color); padding: 0.75rem 1rem; border-radius: var(--border-radius-sm);">
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 2rem; padding: 1.5rem; background: var(--primary-light); border-radius: var(--border-radius-md); display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h4 style="margin: 0 0 0.25rem 0; color: var(--primary-color); font-weight: 700; font-size: 1.1rem;">Academic Attendance Tracker</h4>
+                            <p style="margin: 0; color: #4b5563; font-size: 0.9rem;">Maintain above 75% attendance to avoid defaulter lists.</p>
+                        </div>
+                        <div style="font-size: 2rem; font-weight: 800; color: var(--primary-color);">85%</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================ -->
             <!-- MOCK TABS PANEL                              -->
             <!-- ============================================ -->
             <div id="tab-mock" class="app-view">
@@ -496,6 +677,14 @@ $db = get_db();
                 document.getElementById('tab-leaves').classList.add('active');
                 headerTitle.textContent = "Leave Requests";
                 headerSubtitle.textContent = "Apply for college leave by submitting your verified leave form.";
+            } else if (tabName === 'grievance') {
+                document.getElementById('tab-grievance').classList.add('active');
+                headerTitle.textContent = "Grievance";
+                headerSubtitle.textContent = "Submit issues or report institutional suggestions.";
+            } else if (tabName === 'profile') {
+                document.getElementById('tab-profile').classList.add('active');
+                headerTitle.textContent = "My Profile";
+                headerSubtitle.textContent = "View and manage your academic profile credentials.";
             } else {
                 // Show mock templates
                 const mockPanel = document.getElementById('tab-mock');
@@ -514,9 +703,6 @@ $db = get_db();
                 if (tabName === 'profile') {
                     iconBox.innerHTML = '<i class="fa-solid fa-id-card"></i>';
                     descText.textContent = "Prasad Kulkarni | Student ID: 125UIT1080 | Department of Information Technology (IT-A2). Academic profile status, emergency contact info, and registration logs are managed inside this panel.";
-                } else if (tabName === 'grievance') {
-                    iconBox.innerHTML = '<i class="fa-solid fa-circle-question"></i>';
-                    descText.textContent = "Submit issues or report institutional suggestions. Direct routing lines are open to HOD and Admin panels to review and process submitted grievances.";
                 }
             }
         }
@@ -596,6 +782,36 @@ $db = get_db();
             document.getElementById('modalFallbackFileName').value = '';
             document.getElementById('modalFileNameText').textContent = 'No file selected';
             document.getElementById('modalFileDisplay').style.display = 'none';
+        }
+
+        // Filtering logic for notices
+        function filterNotices() {
+            const roleFilter = document.getElementById('noticeRoleFilter').value;
+            const sortFilter = document.getElementById('noticeSortFilter').value;
+            const tbody = document.querySelector('#tab-notices tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            
+            rows.forEach(row => {
+                const roleCell = row.querySelector('.pub-role').textContent.toLowerCase();
+                if (roleFilter === 'all') {
+                    row.style.display = '';
+                } else if (roleFilter === 'faculty' && roleCell.includes('faculty')) {
+                    row.style.display = '';
+                } else if (roleFilter === 'admin' && roleCell.includes('admin')) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+
+            // Sorting by ID (simulating date since data is mock/static in structure)
+            const sortedRows = rows.sort((a, b) => {
+                const idA = parseInt(a.cells[0].textContent);
+                const idB = parseInt(b.cells[0].textContent);
+                return sortFilter === 'newest' ? idB - idA : idA - idB;
+            });
+
+            sortedRows.forEach(row => tbody.appendChild(row));
         }
     </script>
 </body>
